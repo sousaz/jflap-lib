@@ -341,7 +341,7 @@ public class MultipleSimulateAction extends NoInteractionSimulateAction {
 			
 		});
 		// Add the running input thing.
-		bar.add(new AbstractAction("Run Inputs") {
+		bar.add(new AbstractAction("Run Inputs") { // Aqui chama a função de verificar inputs
 			public void actionPerformed(ActionEvent e) {
 				try {
 					// Make sure any recent changes are registered.

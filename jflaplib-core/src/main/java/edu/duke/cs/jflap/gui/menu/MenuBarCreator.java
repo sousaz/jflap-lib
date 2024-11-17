@@ -247,6 +247,10 @@ public class MenuBarCreator {
 		if (MultipleOutputSimulateAction.isApplicable(object))
 			addItem(menu, new MultipleOutputSimulateAction((Automaton) object,
 					environment));
+		// Aqui adiciona o botão la no menu em cima
+		if (CorrectionAction.isApplicable(object))
+			addItem(menu, new CorrectionAction());
+			// addItem(menu, new CorrectionAction((Automaton) object, environment));
 		/*
 		 * if (GrammarOutputAction.isApplicable(object)) addItem(menu, new
 		 * GrammarOutputAction ((gui.environment.GrammarEnvironment)
