@@ -7,24 +7,45 @@ import edu.duke.cs.jflap.automata.Configuration;
 import edu.duke.cs.jflap.automata.SimulatorFactory;
 import edu.duke.cs.jflap.automata.mealy.MealyConfiguration;
 import edu.duke.cs.jflap.automata.mealy.MealyMachine;
-import edu.duke.cs.jflap.automata.mealy.MooreMachine;
 import edu.duke.cs.jflap.automata.turing.TuringMachine;
-import edu.duke.cs.jflap.automata.fsa.FSAConfiguration;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
-import java.io.File;
-import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.*;
 
 import javax.swing.filechooser.FileNameExtensionFilter;
 
 public class CorrectionAction extends AutomatonAction {
 
+    private List<TestResult> results = new ArrayList<>(); // Lista para armazenar os resultados de cada arquivo JFLAP
+
     public CorrectionAction() {
         super("Correction", null);
+    }
+
+    private String getAutomatonOutput(Automaton automaton, List<Configuration> associated) {
+        if (automaton instanceof MealyMachine) {
+            // Se for uma máquina de Mealy, pega a saída de MealyConfiguration
+            MealyConfiguration con = (MealyConfiguration) associated.get(0);
+            return con.getOutput();
+        } else if (automaton instanceof TuringMachine) {
+            // Se for uma máquina de Turing, a saída pode ser "Aceito" ou "Rejeitado", dependendo do estado final
+            Configuration con = associated.get(0); // Assume que a primeira configuração é a final
+            return con.isAccept() ? "Aceito" : "Rejeitado";
+        } else if (automaton instanceof Automaton) {
+            // Se for um autômato genérico, a saída pode ser "Aceito" ou "Rejeitado", dependendo do estado final
+            Configuration con = associated.get(0); // Assume que a primeira configuração é a final
+            return con.isAccept() ? "Aceito" : "Rejeitado";
+        } else {
+            // Se o autômato não for um tipo tratado, retorne uma mensagem padrão
+            return "Saída não implementada para esse tipo de autômato";
+        }
     }
 
     public CorrectionAction(String string, Icon icon){
@@ -44,6 +65,9 @@ public class CorrectionAction extends AutomatonAction {
         if (responseFile == null) return;
 
         processCorrection(jflapFiles, responseFile);
+
+        // Depois de processar os arquivos, cria o arquivo JSON
+        saveResultsToJson();
     }
 
     private File[] selectJFLAPFiles() {
@@ -79,7 +103,7 @@ public class CorrectionAction extends AutomatonAction {
             for (File jflapFile : jflapFiles) {
                 Automaton automaton = loadAutomatonFromJFLAP(jflapFile);
                 if (automaton != null) {
-                    processAutomaton(automaton, responseFile);
+                    processAutomaton(automaton, responseFile, jflapFile.getName());
                 } else {
                     System.out.println("Erro ao carregar o autômato do arquivo JFLAP: " + jflapFile.getName());
                 }
@@ -100,63 +124,43 @@ public class CorrectionAction extends AutomatonAction {
         }
     }
 
-    private void processAutomaton(Automaton automaton, File responseFile) {
+    private void processAutomaton(Automaton automaton, File responseFile, String fileName) {
+        int correctAnswers = 0;
+        int totalInputs = 0;
+
         try (Scanner scanner = new Scanner(responseFile)) {
-            int responseIndex = 0;
-    
-            // Obtém as entradas do autômato
             String[] inputs = getInputsForAutomaton(automaton, responseFile);
-    
+            int responseIndex = 0;
+
             while (scanner.hasNextLine()) {
-                // Verifica se o índice de resposta está dentro do limite das entradas
                 if (responseIndex >= inputs.length) {
                     System.out.println("Aviso: Número de entradas excedido. Ignorando entradas extras.");
                     break;
                 }
-    
+
                 String expectedOutput = scanner.nextLine();
                 AutomatonSimulator simulator = SimulatorFactory.getSimulator(automaton);
                 Configuration[] configs = simulator.getInitialConfigurations(inputs[responseIndex]);
-    
+
                 List<Configuration> associated = new ArrayList<>();
                 int result = handleInput(automaton, simulator, configs, inputs[responseIndex], associated);
-    
+
                 String actualOutput = getAutomatonOutput(automaton, associated);
-    
-                if (expectedOutput.equals(actualOutput)) {
-                    System.out.println("Resposta correta para a entrada: " + inputs[responseIndex]);
-                } else {
-                    System.out.println("Resposta incorreta para a entrada: " + inputs[responseIndex]);
-                    System.out.println("Saída esperada: " + expectedOutput);
-                    System.out.println("Saída obtida: " + actualOutput);
+
+                if (actualOutput.equals("Aceito")) {
+                    correctAnswers++;
                 }
-    
+
+                totalInputs++;
                 responseIndex++;
             }
+
+            // Salva o resultado para o arquivo
+            results.add(new TestResult(fileName, totalInputs, correctAnswers));
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }    
-
-    private String getAutomatonOutput(Automaton automaton, List<Configuration> associated) {
-    if (automaton instanceof MealyMachine) {
-        // Se for uma máquina de Mealy, pega a saída de MealyConfiguration
-        MealyConfiguration con = (MealyConfiguration) associated.get(0);
-        return con.getOutput();
-    } else if (automaton instanceof TuringMachine) {
-        // Se for uma máquina de Turing, a saída pode ser "Aceito" ou "Rejeitado", dependendo do estado final
-        Configuration con = associated.get(0); // Assume que a primeira configuração é a final
-        return con.isAccept() ? "Aceito" : "Rejeitado";
-    } else if (automaton instanceof Automaton) {
-        // Se for um autômato genérico, a saída pode ser "Aceito" ou "Rejeitado", dependendo do estado final
-        Configuration con = associated.get(0); // Assume que a primeira configuração é a final
-        return con.isAccept() ? "Aceito" : "Rejeitado";
-    } else {
-        // Se o autômato não for um tipo tratado, retorne uma mensagem padrão
-        return "Saída não implementada para esse tipo de autômato";
     }
-}
-
 
     private String[] getInputsForAutomaton(Automaton automaton, File responseFile) {
         List<String> inputs = new ArrayList<>();
@@ -164,13 +168,50 @@ public class CorrectionAction extends AutomatonAction {
             while (scanner.hasNextLine()) {
                 String line = scanner.nextLine().trim();
                 if (!line.isEmpty()) {
-                    inputs.add(line);  // Adiciona cada linha do arquivo como uma entrada
+                    inputs.add(line);
                 }
             }
         } catch (FileNotFoundException e) {
             e.printStackTrace();
         }
-        return inputs.toArray(new String[0]);  // Retorna o array de entradas
+        return inputs.toArray(new String[0]);
+    }
+
+    // Classe interna para armazenar os resultados
+    private static class TestResult {
+        String nomeArquivo;
+        int totalInputs;
+        int acertos;
+
+        TestResult(String nomeArquivo, int totalInputs, int acertos) {
+            this.nomeArquivo = nomeArquivo;
+            this.totalInputs = totalInputs;
+            this.acertos = acertos;
+        }
+
+        // Converte para JSONObject
+        public JSONObject toJson() {
+            JSONObject json = new JSONObject();
+            json.put("nomeArquivo", nomeArquivo);
+            json.put("totalInputs", totalInputs);
+            json.put("acertos", acertos);
+            return json;
+        }
+    }
+
+    private void saveResultsToJson() {
+        JSONArray jsonArray = new JSONArray();
+        for (TestResult result : results) {
+            jsonArray.put(result.toJson());
+        }
+
+        // Salva o JSON em um arquivo
+        try (FileWriter file = new FileWriter("resultados.json")) {
+            file.write(jsonArray.toString(4)); // Indenta o JSON para melhorar a legibilidade
+            System.out.println("Arquivo JSON salvo com sucesso!");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     protected int handleInput(Automaton automaton, AutomatonSimulator simulator, Configuration[] configs, Object initialInput, List<Configuration> associatedConfigurations) {
